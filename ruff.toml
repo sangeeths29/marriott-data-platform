@@ -1,0 +1,8 @@
+line-length = 120
+target-version = "py310"
+[lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["B008"]
+
+[lint.isort]
+known-third-party = ["airflow"]  # the repo's airflow/ folder is not the airflow package

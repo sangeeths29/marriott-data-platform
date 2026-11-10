@@ -1,0 +1,86 @@
+version: 2
+
+models:
+  - name: dim_brand
+    columns:
+      - name: brand
+        tests: [unique, not_null]
+      - name: tier
+        tests:
+          - accepted_values:
+              arguments: {values: ['Luxury', 'Premium', 'Select', 'Midscale']}
+
+  - name: dim_property
+    description: Golden record of Marriott-brand properties.
+    columns:
+      - name: property_id
+        tests: [unique, not_null]
+      - name: brand
+        tests:
+          - not_null
+          - relationships: {arguments: {to: ref('dim_brand'), field: brand}}
+      - name: record_source
+        tests:
+          - accepted_values: {arguments: {values: ['openstreetmap', 'reviews_only']}}
+
+  - name: fct_review
+    columns:
+      - name: review_id
+        tests: [unique, not_null]
+      - name: property_id
+        tests:
+          - not_null
+          - relationships: {arguments: {to: ref('dim_property'), field: property_id}}
+      - name: rating_5
+        tests:
+          - value_between: {arguments: {min_value: 0, max_value: 5}}
+      - name: sentiment_label
+        tests:
+          - accepted_values: {arguments: {values: ['positive', 'neutral', 'negative']}}
+
+  - name: fct_financials_quarterly
+    tests:
+      - unique_combination: {arguments: {columns: ['calendar_year', 'calendar_quarter']}}
+
+  - name: fct_reservation
+    description: "One row per reservation, current state, amounts in USD. SIMULATED source."
+    columns:
+      - name: reservation_id
+        tests: [unique, not_null]
+      - name: property_id
+        tests:
+          - relationships: {arguments: {to: ref('dim_property'), field: property_id}}
+      - name: adr_usd
+        tests: [not_null]   # fails if a currency is missing from the fx_rates seed
+      - name: status
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['BOOKED', 'MODIFIED', 'CANCELLED', 'NO_SHOW', 'CHECKED_IN', 'CHECKED_OUT']
+      - name: lead_time_days
+        tests:
+          - value_between: {arguments: {min_value: 0, max_value: 400}}
+
+  - name: fct_property_daily
+    description: Property x stay date occupancy, ADR and RevPAR (zero-sale days included).
+    tests:
+      - unique_combination: {arguments: {columns: ['property_id', 'stay_date']}}
+    columns:
+      - name: occupancy
+        tests:
+          - value_between:
+              arguments: {min_value: 0, max_value: 1}
+              config: {severity: warn}   # >100% = overbooking; investigate, don't block
+      - name: revpar_usd
+        tests:
+          - value_between: {arguments: {min_value: 0, max_value: 5000}}
+
+  - name: mart_brand_kpis_monthly
+    tests:
+      - unique_combination: {arguments: {columns: ['brand', 'stay_month']}}
+
+  - name: rpt_pipeline_health
+    columns:
+      - name: status
+        tests:
+          - accepted_values: {arguments: {values: ['SUCCEEDED', 'SKIPPED', 'FAILED']}}

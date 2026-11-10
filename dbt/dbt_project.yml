@@ -1,0 +1,31 @@
+name: marriott_dp
+version: "1.0.0"
+config-version: 2
+profile: marriott_dp
+
+model-paths: ["models"]
+snapshot-paths: ["snapshots"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+vars:
+  default_room_count: 150  # must match pipeline/simulator/crs.py DEFAULT_ROOMS
+
+models:
+  marriott_dp:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table
+
+seeds:
+  marriott_dp:
+    fx_rates:
+      +column_types:
+        currency: varchar
+        usd_per_unit: double
+    brands:
+      +column_types:
+        brand_name: varchar
+        tier: varchar

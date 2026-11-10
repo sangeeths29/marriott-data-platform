@@ -1,0 +1,43 @@
+version: 2
+
+sources:
+  - name: silver
+    # Athena: Glue database populated by the crawler. DuckDB: ignored, uses external_location.
+    schema: "{{ env_var('SILVER_SCHEMA', 'marriott_dp_dev_silver') }}"
+    meta:
+      external_location: "read_parquet('{{ env_var('SILVER_PATH', '../data/silver') }}/{name}/**/*.parquet', hive_partitioning = true)"
+    tables:
+      - name: properties
+        description: Marriott-brand properties from OpenStreetMap (one row per OSM element).
+      - name: reviews
+        description: Conformed Marriott-brand reviews from Datafiniti + Europe 515K, PII masked.
+      - name: financials
+        description: Marriott International SEC XBRL facts, latest filing per period.
+
+  # Iceberg tables written by the incremental CDC job (pipeline/jobs/reservations_cdc_merge.py).
+  # Athena reads them natively from the Glue Catalog; DuckDB via iceberg_scan.
+  - name: silver_iceberg
+    schema: "{{ env_var('SILVER_SCHEMA', 'marriott_dp_dev_silver') }}"
+    meta:
+      external_location: "iceberg_scan('{{ env_var('ICEBERG_WAREHOUSE', '../data/iceberg') }}/{{ env_var('ICEBERG_NAMESPACE_PREFIX', 'marriott_dp_dev') }}_silver/{name}')"
+    tables:
+      - name: reservations
+        description: "SIMULATED reservation system: current state of every reservation (CDC-merged, SCD1)."
+        # When the pipeline last merged data (not source event time), so backfills of old
+        # dates don't look stale and a stopped pipeline does.
+        loaded_at_field: _merged_at
+        freshness:
+          warn_after: {count: 30, period: hour}
+          error_after: {count: 54, period: hour}
+      - name: reservation_nights
+        description: One row per occupied room-night (non-cancelled reservations).
+
+  - name: ops
+    schema: "{{ env_var('OPS_SCHEMA', 'marriott_dp_dev_ops') }}"
+    meta:
+      external_location: "iceberg_scan('{{ env_var('ICEBERG_WAREHOUSE', '../data/iceberg') }}/{{ env_var('ICEBERG_NAMESPACE_PREFIX', 'marriott_dp_dev') }}_ops/{name}')"
+    tables:
+      - name: pipeline_run_log
+        description: One row per pipeline run with watermark, row counts and status.
+      - name: reservation_rejects
+        description: Records that failed data-quality rules, with reasons and the raw record.

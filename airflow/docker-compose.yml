@@ -1,0 +1,31 @@
+# Local Airflow (standalone: webserver + scheduler + SQLite metadata DB).
+#   make airflow-up   -> http://localhost:8080  (user: admin, password printed in logs:
+#                        docker compose -f airflow/docker-compose.yml logs | grep "Password")
+services:
+  airflow:
+    build: .
+    command: >
+      bash -c "airflow db migrate &&
+               airflow pools set external_apis 2 'Rate-limited public APIs (Kaggle, Overpass, SEC)' &&
+               airflow standalone"
+    ports: ["8080:8080"]
+    volumes:
+      - ..:/opt/marriott
+      - airflow-home:/opt/airflow
+    environment:
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/marriott/airflow/dags
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
+      PIPELINE_ENV: local
+      PROJECT_DIR: /opt/marriott
+      DATA_ROOT: /opt/marriott/data
+      SILVER_PATH: /opt/marriott/data/silver
+      ICEBERG_WAREHOUSE: /opt/marriott/data/iceberg
+      DUCKDB_PATH: /opt/marriott/data/warehouse.duckdb
+      # Optional real-data credentials (export on your host before `make airflow-up`)
+      KAGGLE_USERNAME: ${KAGGLE_USERNAME:-}
+      KAGGLE_KEY: ${KAGGLE_KEY:-}
+      SEC_USER_AGENT: ${SEC_USER_AGENT:-}
+
+volumes:
+  airflow-home:

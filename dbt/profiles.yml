@@ -1,0 +1,19 @@
+# Used with:  dbt build --profiles-dir .   (target via DBT_TARGET, default "local")
+marriott_dp:
+  target: "{{ env_var('DBT_TARGET', 'local') }}"
+  outputs:
+    # Free local dev: DuckDB reads the silver Parquet files directly.
+    local:
+      type: duckdb
+      path: "{{ env_var('DUCKDB_PATH', '../data/warehouse.duckdb') }}"
+      extensions: [iceberg]  # read the Iceberg silver tables locally
+      threads: 4
+    # AWS: Athena over the Glue Data Catalog (tables created by the silver crawler).
+    dev:
+      type: athena
+      region_name: "{{ env_var('AWS_REGION', 'us-east-1') }}"
+      s3_staging_dir: "{{ env_var('ATHENA_STAGING_DIR') }}"
+      database: awsdatacatalog
+      schema: "{{ env_var('ATHENA_SCHEMA', 'marriott_dp_dev_gold') }}"
+      work_group: "{{ env_var('ATHENA_WORKGROUP', 'marriott-dp-dev') }}"
+      threads: 4

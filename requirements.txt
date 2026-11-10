@@ -1,0 +1,9 @@
+pandas>=2.1
+pyarrow>=14
+requests>=2.31
+boto3>=1.34
+kaggle>=1.6
+vaderSentiment==3.3.2
+dbt-core>=1.10,<2
+dbt-duckdb>=1.9
+dbt-athena-community>=1.9
