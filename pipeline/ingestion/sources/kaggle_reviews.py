@@ -1,7 +1,7 @@
 """Download hotel review datasets from Kaggle.
 
 Requires a Kaggle API token at ~/.kaggle/kaggle.json (or KAGGLE_USERNAME / KAGGLE_KEY
-env vars). In Jenkins/AWS, store these in a credentials store / Secrets Manager,
+env vars). In CI/AWS, store these in GitHub secrets / AWS Secrets Manager,
 never in the repo.
 """
 from __future__ import annotations

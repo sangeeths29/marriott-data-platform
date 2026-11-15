@@ -16,7 +16,7 @@ export PYSPARK_DRIVER_PYTHON ?= $(CURDIR)/.venv/bin/python
 add_days = $(shell $(PY) -c "import datetime as t;print(t.date.fromisoformat('$(1)')+t.timedelta(days=$(2)))")
 
 .PHONY: help setup lint test test-all package sample ingest bronze silver crs-init crs-day reservations \
-        dbt demo freshness airflow-up airflow-down \
+        dbt demo freshness \
         aws-whoami bootstrap tf-init tf-plan tf-apply tf-destroy aws-env hybrid-env clean
 
 help:             ## list targets
@@ -79,12 +79,6 @@ demo:             ## end-to-end on synthetic data: reference + 3 days of reserva
 	$(MAKE) crs-day DATE=$(call add_days,$(START),2)
 	$(MAKE) reservations DATE=$(call add_days,$(START),2)
 	$(MAKE) dbt freshness
-
-airflow-up:       ## local Airflow (Docker) at http://localhost:8080
-	docker compose -f airflow/docker-compose.yml up -d --build
-
-airflow-down:
-	docker compose -f airflow/docker-compose.yml down
 
 # ---------------------------------------------------------------- AWS (Terraform)
 ENV        ?= dev

@@ -1,7 +1,7 @@
 """Ops utility: start a Glue job and block until it finishes (manual reruns outside Airflow).
 
   python scripts/run_glue_job.py --job marriott-dp-dev-bronze-to-silver --date 2026-11-09
-Exit code 0 on SUCCEEDED, 1 otherwise, so the Jenkins stage fails and alerts.
+Exit code 0 on SUCCEEDED, 1 otherwise, so a calling CI step fails and alerts.
 """
 import argparse
 import sys

@@ -69,7 +69,7 @@ resource "aws_iam_role_policy" "glue_data" {
   policy = data.aws_iam_policy_document.glue_data.json
 }
 
-# ---------- Ingestion role: assumed by Jenkins to land + validate raw files ----------
+# ---------- Ingestion role: assumed by the orchestrator to land + validate raw files ----------
 data "aws_iam_policy_document" "ingestion_assume" {
   statement {
     actions = ["sts:AssumeRole"]

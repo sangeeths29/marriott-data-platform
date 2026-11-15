@@ -9,7 +9,7 @@ reservation system feed. The platform is built with enterprise patterns:
 - a run audit log
 - dbt with SCD2 history
 - Terraform
-- Jenkins CI/CD
+- GitHub Actions CI/CD (OIDC, no stored AWS keys)
 - freshness SLAs and an on-call runbook
 
 > **About the data:** reviews, property locations and financials are real public
@@ -119,12 +119,21 @@ print(c.sql('select brand, stay_month, occupancy, adr_usd, revpar_usd from mart_
 print(c.sql('select run_date, status, rows_inserted, rows_updated, rows_deleted from rpt_pipeline_health'))"
 ```
 
-**Airflow UI locally** (Docker): `make airflow-up`, then open http://localhost:8080.
+**Airflow locally:** install it into a separate venv (it has its own pinned dependencies),
+then run a day of the DAG without a scheduler:
+```bash
+python3 -m venv .venv-airflow && .venv-airflow/bin/pip install -r requirements-airflow.txt \
+  -c https://raw.githubusercontent.com/apache/airflow/constraints-2.10.3/constraints-3.11.txt
+AIRFLOW__CORE__DAGS_FOLDER=$PWD/airflow/dags .venv-airflow/bin/airflow dags test marriott_daily 2026-11-01
+```
 
 **Real reference data:** put a Kaggle token in `~/.kaggle/kaggle.json`, run
 `export SEC_USER_AGENT="Your Name you@example.com"`, then `make ingest bronze silver`.
 
 ## Deploy to AWS
+
+See the [AWS deployment record](docs/aws-deployment.md) for the hybrid execution
+details, reported results, reproduction commands, and evidence still to attach.
 
 **Status:** deployed to a real AWS account and run end to end in **hybrid mode**: data in
 **S3**, tables in the **Glue Data Catalog** (Iceberg + Parquet), queries and dbt on **Athena**,
@@ -176,7 +185,7 @@ returns timestamps (explicit cast); an enforced workgroup sent gold tables to th
 
 **MWAA** is not in this Terraform on purpose: it needs a VPC and costs about $350/month
 minimum. Point an existing MWAA environment at `airflow/dags` with the `airflow_env`
-output, or run the Docker image on ECS.
+output.
 
 ## CI/CD (GitHub Actions + OIDC)
 
@@ -188,12 +197,6 @@ output, or run the Docker image on ECS.
 - AWS access is via **OIDC**: short-lived credentials, no keys stored in GitHub. The deploy
   role only trusts jobs bound to the `dev`/`prod` environments.
 - Needed repo variables: `AWS_ACCOUNT_ID` (and optionally `ALERT_EMAIL`, `ENABLE_PROD`).
-
-### Alternative: Jenkins
-
-[`Jenkinsfile`](Jenkinsfile): lint → **parallel**(unit + Spark/Iceberg tests, DAG
-integrity tests) → `dbt parse` → package → `terraform plan`. On `main`, it deploys to
-dev automatically (infrastructure + DAG sync), then to prod after manual approval.
 
 ## Data governance
 
@@ -210,7 +213,8 @@ dev automatically (infrastructure + DAG sync), then to prod after manual approva
 ## Repo layout
 
 ```
-airflow/          DAGs (marriott_daily, crs_simulator), Dockerfile, docker-compose
+airflow/          DAGs (marriott_daily, crs_simulator)
+.github/          GitHub Actions: ci.yml, deploy.yml
 pipeline/
   common/         brands, PII, contracts, storage (local|S3), Spark/Iceberg session, metrics
   ingestion/      ingest.py (→ landing), validate_and_load.py (→ bronze); sources/
