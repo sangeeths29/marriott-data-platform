@@ -1,0 +1,82 @@
+# CI: every pull request and push. Lint, unit + Spark/Iceberg tests, DAG integrity,
+# dbt parse, Terraform fmt/validate, and (when AWS is configured) a read-only
+# Terraform plan via GitHub OIDC (no stored AWS keys).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Lint, tests, dbt parse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: ruff check pipeline scripts tests airflow
+      - run: pytest -q --junitxml=reports/junit.xml
+      - name: dbt parse
+        working-directory: dbt
+        run: dbt parse --profiles-dir . --target local
+
+  dags:
+    name: Airflow DAG integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: |
+          pip install pytest -r requirements-airflow.txt \
+            -c https://raw.githubusercontent.com/apache/airflow/constraints-2.10.3/constraints-3.11.txt
+      - run: AIRFLOW_HOME=$PWD/.airflow pytest -q tests/test_dags.py
+
+  terraform:
+    name: Terraform fmt / validate / plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC token for AWS
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: "1.17.2" }
+      - run: make package
+      - run: terraform fmt -check -recursive
+        working-directory: terraform
+      - name: Validate
+        run: |
+          for d in terraform/bootstrap terraform; do
+            (cd $d && terraform init -backend=false -input=false && terraform validate)
+          done
+      - name: AWS credentials (read-only plan role)
+        if: vars.AWS_ACCOUNT_ID != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/marriott-dp-github-plan
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Plan (dev)
+        if: vars.AWS_ACCOUNT_ID != ''
+        working-directory: terraform
+        run: |
+          terraform init -input=false -reconfigure \
+            -backend-config="bucket=marriott-dp-tfstate-${{ vars.AWS_ACCOUNT_ID }}" \
+            -backend-config="key=dev/main.tfstate"
+          terraform plan -input=false -lock=false -var-file=envs/dev.tfvars -no-color | tee plan.txt
+          { echo '### Terraform plan (dev)'; echo '```'; tail -40 plan.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

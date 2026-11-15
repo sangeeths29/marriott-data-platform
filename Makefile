@@ -8,12 +8,16 @@ DBT     ?= ../.venv/bin/dbt
 ICEBERG := org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1
 REFERENCE_SOURCES := datafiniti_reviews europe_reviews osm_properties sec_financials
 export DATA_ROOT ?= ./data
+# spark-submit must use this project's Python, not whatever python3 is first on PATH (e.g. conda base)
+export PYSPARK_PYTHON ?= $(CURDIR)/.venv/bin/python
+export PYSPARK_DRIVER_PYTHON ?= $(CURDIR)/.venv/bin/python
 
 # date arithmetic helper: $(call add_days,2026-11-01,2) -> 2026-11-03
 add_days = $(shell $(PY) -c "import datetime as t;print(t.date.fromisoformat('$(1)')+t.timedelta(days=$(2)))")
 
 .PHONY: help setup lint test test-all package sample ingest bronze silver crs-init crs-day reservations \
-        dbt demo freshness airflow-up airflow-down tf-plan clean
+        dbt demo freshness airflow-up airflow-down \
+        aws-whoami bootstrap tf-init tf-plan tf-apply tf-destroy aws-env hybrid-env clean
 
 help:             ## list targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*##/ -/'
@@ -44,7 +48,8 @@ bronze:           ## validate landing -> bronze (data contracts, quarantine)
 	for s in $(REFERENCE_SOURCES); do $(PY) -m pipeline.ingestion.validate_and_load --source $$s --date $(DATE) || exit 1; done
 
 silver: package   ## Spark: reviews/properties/financials -> silver
-	$(SPARK) --py-files build/pipeline.zip pipeline/jobs/bronze_to_silver.py --date $(DATE) --data-root "$(DATA_ROOT)"
+	$(SPARK) $(SPARK_EXTRA) --py-files build/pipeline.zip pipeline/jobs/bronze_to_silver.py --date $(DATE) --data-root "$(DATA_ROOT)"
+	$(PY) scripts/register_silver_tables.py
 
 # ---------------------------------------------------------------- reservations (SIMULATED source)
 crs-init:         ## simulate the reservation system + full-load extract (needs silver/properties)
@@ -56,8 +61,8 @@ crs-day:          ## publish + validate one day's CDC extract (DATE=...)
 	$(PY) -m pipeline.ingestion.validate_and_load --source crs_reservations --date $(DATE)
 
 reservations: package  ## Spark: incremental CDC MERGE into Iceberg (catches up to DATE)
-	$(SPARK) --packages $(ICEBERG) --py-files build/pipeline.zip pipeline/jobs/reservations_cdc_merge.py \
-	  --date $(DATE) --data-root "$(DATA_ROOT)"
+	$(SPARK) $(if $(SPARK_EXTRA),$(SPARK_EXTRA),--packages $(ICEBERG)) --py-files build/pipeline.zip \
+	  pipeline/jobs/reservations_cdc_merge.py --date $(DATE) --data-root "$(DATA_ROOT)"
 
 # ---------------------------------------------------------------- gold + ops
 dbt:              ## seeds, SCD2 snapshot, models + tests (DuckDB)
@@ -81,8 +86,37 @@ airflow-up:       ## local Airflow (Docker) at http://localhost:8080
 airflow-down:
 	docker compose -f airflow/docker-compose.yml down
 
-tf-plan: package  ## terraform plan for dev
-	cd terraform && terraform init && terraform plan -var-file=envs/dev.tfvars
+# ---------------------------------------------------------------- AWS (Terraform)
+ENV        ?= dev
+AWS_ACCOUNT = $(shell aws sts get-caller-identity --query Account --output text)
+TF_BACKEND  = -backend-config="bucket=marriott-dp-tfstate-$(AWS_ACCOUNT)" -backend-config="key=$(ENV)/main.tfstate"
+
+aws-whoami:       ## show which AWS account/identity you're signed in as
+	aws sts get-caller-identity --query '{Account:Account,Identity:Arn}' --output table
+
+bootstrap:        ## one-time: state bucket + GitHub OIDC roles (local state)
+	cd terraform/bootstrap && terraform init -input=false && terraform apply
+
+tf-init:          ## init the main stack against remote state (ENV=dev|prod)
+	cd terraform && terraform init -input=false -reconfigure $(TF_BACKEND)
+
+tf-plan: package tf-init  ## plan ENV
+	cd terraform && terraform plan -input=false -var-file=envs/$(ENV).tfvars -out=$(ENV).tfplan
+
+tf-apply:         ## apply the saved plan from tf-plan
+	cd terraform && terraform apply -input=false $(ENV).tfplan
+
+tf-destroy: package tf-init  ## tear down ENV (asks for confirmation)
+	cd terraform && terraform destroy -var-file=envs/$(ENV).tfvars
+
+aws-env:          ## print the env vars that point local tools/Airflow at the deployed stack
+	@cd terraform && terraform output -json airflow_env | python3 -c "import json,sys; [print(f'export {k}={v}') for k,v in json.load(sys.stdin).items()]"
+
+hybrid-env:       ## write .env.hybrid: Spark on this machine, data/catalog/queries on AWS (then: source .env.hybrid)
+	@$(MAKE) -s aws-env | grep -v PIPELINE_ENV > .env.hybrid
+	@echo "export PIPELINE_ENV=local LOCAL_SPARK_S3=1 DBT_TARGET=dev" >> .env.hybrid
+	@$(PY) -c "from pipeline.common.spark import LOCAL_S3_PACKAGES as p; print(f\"export SPARK_EXTRA='--packages {p}'\")" >> .env.hybrid
+	@echo "wrote .env.hybrid - load it with: source .env.hybrid"
 
 clean:
 	rm -rf build reports dbt/target dbt/logs data/warehouse.duckdb

@@ -58,8 +58,8 @@ pipeline {
           dir('terraform') {
             sh '''
               terraform fmt -check -recursive
-              terraform init -input=false
-              terraform workspace select -or-create dev
+              ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+              terraform init -input=false -backend-config="bucket=marriott-dp-tfstate-$ACCOUNT" -backend-config="key=dev/main.tfstate"
               terraform validate
               terraform plan -input=false -var-file=envs/dev.tfvars -out=dev.tfplan
             '''
@@ -93,7 +93,8 @@ pipeline {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-marriott-dp-prod']]) {
           dir('terraform') {
             sh '''
-              terraform workspace select -or-create prod
+              ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+              terraform init -input=false -reconfigure -backend-config="bucket=marriott-dp-tfstate-$ACCOUNT" -backend-config="key=prod/main.tfstate"
               terraform plan -input=false -var-file=envs/prod.tfvars -out=prod.tfplan
               terraform apply -input=false prod.tfplan
             '''

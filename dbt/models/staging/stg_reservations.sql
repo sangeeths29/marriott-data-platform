@@ -8,7 +8,9 @@ select
     booking_channel,
     rate_plan,
     room_type,
-    booking_ts,
+    -- Iceberg stores these with a time zone; Athena can't write that type into Hive tables,
+    -- so normalise to plain (UTC) timestamps here once for every downstream model.
+    cast(booking_ts as timestamp)      as booking_ts,
     arrival_date,
     departure_date,
     nights,
@@ -18,7 +20,7 @@ select
     cast(adr_local as double)          as adr_local,
     cast(total_amount_local as double) as total_amount_local,
     status,
-    cancel_ts,
-    updated_at,
+    cast(cancel_ts as timestamp)       as cancel_ts,
+    cast(updated_at as timestamp)      as updated_at,
     _cdc_seq                           as cdc_seq
 from {{ source('silver_iceberg', 'reservations') }}

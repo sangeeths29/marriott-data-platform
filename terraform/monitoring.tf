@@ -33,7 +33,7 @@ resource "aws_cloudwatch_event_rule" "glue_job_failed" {
     source        = ["aws.glue"]
     "detail-type" = ["Glue Job State Change"]
     detail = {
-      jobName = [aws_glue_job.bronze_to_silver.name, aws_glue_job.reservations_cdc_merge.name]
+      jobName = [local.glue_job_reference, local.glue_job_reservations]
       state   = ["FAILED", "TIMEOUT", "ERROR"]
     }
   })
@@ -45,7 +45,7 @@ resource "aws_cloudwatch_event_rule" "crawler_failed" {
     source        = ["aws.glue"]
     "detail-type" = ["Glue Crawler State Change"]
     detail = {
-      crawlerName = [aws_glue_crawler.silver.name]
+      crawlerName = [local.glue_crawler]
       state       = ["Failed"]
     }
   })
@@ -90,7 +90,7 @@ resource "aws_cloudwatch_dashboard" "pipeline" {
           title   = "Glue job elapsed time (ms)"
           region  = var.region
           stat    = "Maximum"
-          metrics = [["Glue", "glue.driver.aggregate.elapsedTime", "JobName", aws_glue_job.bronze_to_silver.name, "JobRunId", "ALL", "Type", "count"]]
+          metrics = [["Glue", "glue.driver.aggregate.elapsedTime", "JobName", local.glue_job_reference, "JobRunId", "ALL", "Type", "count"]]
         }
       },
       {

@@ -25,7 +25,7 @@ from pyspark.sql import types as T
 
 from pipeline.common.brands import match_brand
 from pipeline.common.pii import hash_identifier, mask_text
-from pipeline.common.spark import resolve_pii_salt
+from pipeline.common.spark import resolve_pii_salt, spark_session
 
 log = logging.getLogger("bronze_to_silver")
 
@@ -225,7 +225,7 @@ def main() -> None:
     a.pii_salt = resolve_pii_salt(a.pii_salt, a.pii_salt_ssm_param)
     root = a.data_root.rstrip("/")
 
-    spark = SparkSession.builder.appName("marriott-bronze-to-silver").getOrCreate()
+    spark = spark_session("marriott-bronze-to-silver", root)
     properties = build_properties(spark, root, a.date).cache()
     properties.write.mode("overwrite").parquet(f"{root}/silver/properties")
 

@@ -12,7 +12,7 @@
 {% endmacro %}
 
 {% macro default__per_key_date_spine(relation, key, start_col, end_col) %}
-    select {{ key }}, d as spine_date
+    select {{ key }}, cast(d as date) as spine_date  -- Athena returns timestamp(0) otherwise
     from {{ relation }}
     cross join unnest(sequence({{ start_col }}, {{ end_col }}, interval '1' day)) as t(d)
 {% endmacro %}

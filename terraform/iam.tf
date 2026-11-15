@@ -75,7 +75,7 @@ data "aws_iam_policy_document" "ingestion_assume" {
     actions = ["sts:AssumeRole"]
     principals {
       type        = "AWS"
-      identifiers = [var.ingestion_principal_arn]
+      identifiers = [var.ingestion_principal_arn != "" ? var.ingestion_principal_arn : "arn:aws:iam::${local.account_id}:root"]
     }
   }
 }

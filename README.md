@@ -126,28 +126,70 @@ print(c.sql('select run_date, status, rows_inserted, rows_updated, rows_deleted 
 
 ## Deploy to AWS
 
+**Status:** deployed to a real AWS account and run end to end in **hybrid mode**: data in
+**S3**, tables in the **Glue Data Catalog** (Iceberg + Parquet), queries and dbt on **Athena**,
+metrics in **CloudWatch**. Spark ran on a laptop because AWS had Glue ETL jobs disabled for
+the account (support case open); the stack then was destroyed to stop costs. Results matched
+the local run exactly (78,190 reservations, all 47 dbt models/tests passing on Athena).
+
+### One-time bootstrap (per AWS account)
 ```bash
-make package && cd terraform
-terraform init && terraform workspace select -or-create dev
-terraform apply -var-file=envs/dev.tfvars
-terraform output airflow_env      # environment variables for MWAA
+make aws-whoami          # confirm you're NOT using the root user
+make bootstrap           # S3 remote-state bucket + GitHub OIDC plan/deploy roles
 ```
 
-What gets provisioned (validated with `terraform validate`):
+### Deploy / destroy an environment
+```bash
+make tf-plan ENV=dev     # review the plan
+make tf-apply ENV=dev
+make tf-destroy ENV=dev  # tear down (dev buckets are emptied automatically)
+```
+Personal/account values are never committed: `TF_VAR_alert_email` and the state bucket
+(derived from your account ID) come from the environment or GitHub variables.
+
+### Run the pipeline against AWS
+- **Full cloud** (`enable_glue_jobs = true`): Airflow in `PIPELINE_ENV=aws` mode triggers the
+  Glue jobs + crawler and runs dbt on Athena.
+- **Hybrid** (`enable_glue_jobs = false`): Spark runs locally, everything else on AWS.
+  ```bash
+  make hybrid-env && source .env.hybrid       # points DATA_ROOT, Athena, Glue at the stack
+  make sample bronze silver DATE=2026-10-31   # silver tables registered in Glue by script
+  make crs-init START=2026-11-01 && make crs-day DATE=2026-11-01 && make reservations DATE=2026-11-01
+  cd dbt && dbt build --profiles-dir . --target dev
+  ```
+
+What gets provisioned:
 
 | Area | Resources |
 |---|---|
 | Storage | Encrypted, versioned, TLS-only S3 lake + artifacts buckets with lifecycle rules |
-| Compute | Glue 4.0 jobs: reference silver (Parquet) and CDC merge (Iceberg, Glue Catalog) |
-| Catalog / query | Glue databases (silver / ops / gold), crawler + trigger, Athena workgroup with a 10 GB per-query cap |
-| Security | Least-privilege IAM per zone; PII salt in SSM SecureString |
-| Operations | SNS alerts, EventBridge failure rules for both jobs, freshness alarm (missing data = breach), dashboard, monthly budget |
+| Compute | Glue 4.0 jobs: reference silver (Parquet) and CDC merge (Iceberg, Glue Catalog); optional |
+| Catalog / query | Glue databases (silver / ops / gold), crawler + trigger, Athena workgroup with a 10 GB per-query cap; gold tables stored in the lake |
+| Security | Least-privilege IAM per zone; PII salt in SSM SecureString; CI via OIDC (no stored keys) |
+| Operations | SNS alerts, EventBridge failure rules, freshness alarm (missing data = breach), dashboard, monthly budget |
+
+Lessons from the real deployment (each fixed in code): Athena can't write
+`timestamp with time zone` into Hive tables (cast in staging); Athena's date `sequence`
+returns timestamps (explicit cast); an enforced workgroup sent gold tables to the
+7-day-expiring results prefix (gold now written to the lake); Glue crawlers replaced by
+`scripts/register_silver_tables.py` (schema from Parquet, no guessing).
 
 **MWAA** is not in this Terraform on purpose: it needs a VPC and costs about $350/month
-minimum. Point an existing MWAA environment at `airflow/dags` (Jenkins syncs them)
-with the `airflow_env` output, or run the Docker image on ECS.
+minimum. Point an existing MWAA environment at `airflow/dags` with the `airflow_env`
+output, or run the Docker image on ECS.
 
-## CI/CD (Jenkins)
+## CI/CD (GitHub Actions + OIDC)
+
+- [`ci.yml`](.github/workflows/ci.yml), on every PR: lint, unit + Spark/Iceberg tests,
+  DAG integrity, `dbt parse`, `terraform fmt/validate`, and a **read-only plan** using the
+  `marriott-dp-github-plan` role.
+- [`deploy.yml`](.github/workflows/deploy.yml), on `main`: applies to **dev** through a
+  protected GitHub environment; **prod** runs only when enabled and requires manual approval.
+- AWS access is via **OIDC**: short-lived credentials, no keys stored in GitHub. The deploy
+  role only trusts jobs bound to the `dev`/`prod` environments.
+- Needed repo variables: `AWS_ACCOUNT_ID` (and optionally `ALERT_EMAIL`, `ENABLE_PROD`).
+
+### Alternative: Jenkins
 
 [`Jenkinsfile`](Jenkinsfile): lint → **parallel**(unit + Spark/Iceberg tests, DAG
 integrity tests) → `dbt parse` → package → `terraform plan`. On `main`, it deploys to
