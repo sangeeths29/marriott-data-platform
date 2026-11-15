@@ -8,7 +8,7 @@ locals {
 
 # ---------- Code artifacts ----------
 # build/pipeline.zip is produced by `make package` (zip keeps the top-level pipeline/
-# folder so `import pipeline.common...` works on Glue). Jenkins runs it before plan.
+# folder so `import pipeline.common...` works on Glue). CI runs it before plan.
 locals {
   pipeline_zip = "${path.module}/../build/pipeline.zip"
 }

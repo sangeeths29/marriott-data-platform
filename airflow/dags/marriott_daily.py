@@ -12,7 +12,7 @@ Nightly batch for the Marriott hospitality data platform.
 
 * Runs for `{{ ds }}`. Every step is idempotent, so clear-and-rerun or
   `airflow dags backfill -s <start> -e <end> marriott_daily` is safe.
-* `PIPELINE_ENV=local` runs Spark/dbt in the worker (Docker demo);
+* `PIPELINE_ENV=local` runs Spark/dbt on the Airflow worker itself;
   `PIPELINE_ENV=aws` triggers the Glue jobs/crawler and runs dbt against Athena.
 * Failures and SLA misses alert via SNS (`ALERT_SNS_TOPIC_ARN`), or the task log locally.
 * Runbook: `ops/runbook.md`.
