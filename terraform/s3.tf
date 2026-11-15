@@ -1,11 +1,14 @@
 # ---------- Data lake: landing / bronze / silver / quarantine ----------
 resource "aws_s3_bucket" "lake" {
   bucket = "${local.prefix}-lake-${local.account_id}"
+  # dev can be torn down with its data; prod buckets refuse to delete while they hold data
+  force_destroy = var.env == "dev"
 }
 
 # ---------- Artifacts: Glue scripts, packaged code, Athena query results ----------
 resource "aws_s3_bucket" "artifacts" {
-  bucket = "${local.prefix}-artifacts-${local.account_id}"
+  bucket        = "${local.prefix}-artifacts-${local.account_id}"
+  force_destroy = var.env == "dev"
 }
 
 locals {

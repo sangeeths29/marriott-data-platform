@@ -13,6 +13,7 @@ marriott_dp:
       type: athena
       region_name: "{{ env_var('AWS_REGION', 'us-east-1') }}"
       s3_staging_dir: "{{ env_var('ATHENA_STAGING_DIR') }}"
+      s3_data_dir: "{{ env_var('ATHENA_DATA_DIR') }}"
       database: awsdatacatalog
       schema: "{{ env_var('ATHENA_SCHEMA', 'marriott_dp_dev_gold') }}"
       work_group: "{{ env_var('ATHENA_WORKGROUP', 'marriott-dp-dev') }}"

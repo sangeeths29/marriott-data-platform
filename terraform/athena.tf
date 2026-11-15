@@ -3,7 +3,10 @@ resource "aws_athena_workgroup" "this" {
   force_destroy = true
 
   configuration {
-    enforce_workgroup_configuration    = true
+    # Not enforced, so dbt can write gold tables to the lake (s3_data_dir = .../gold/) instead
+    # of the query-results prefix, which expires after 7 days. The per-query scan cutoff
+    # below still applies to every query in the workgroup.
+    enforce_workgroup_configuration    = false
     publish_cloudwatch_metrics_enabled = true
     # Cost guardrail: kill any single query scanning more than 10 GB.
     bytes_scanned_cutoff_per_query = 10 * 1024 * 1024 * 1024

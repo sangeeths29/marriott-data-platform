@@ -1,3 +1,11 @@
+# Glue jobs/crawler can be switched off (enable_glue_jobs = false) for accounts where AWS
+# hasn't enabled Glue ETL yet; Spark then runs elsewhere (hybrid mode, see README).
+locals {
+  glue_job_reference    = "${local.prefix}-bronze-to-silver"
+  glue_job_reservations = "${local.prefix}-reservations-cdc-merge"
+  glue_crawler          = "${local.prefix}-silver"
+}
+
 # ---------- Code artifacts ----------
 # build/pipeline.zip is produced by `make package` (zip keeps the top-level pipeline/
 # folder so `import pipeline.common...` works on Glue). Jenkins runs it before plan.
@@ -46,7 +54,8 @@ resource "aws_glue_catalog_database" "gold" {
 
 # ---------- Transform job ----------
 resource "aws_glue_job" "bronze_to_silver" {
-  name              = "${local.prefix}-bronze-to-silver"
+  count             = var.enable_glue_jobs ? 1 : 0
+  name              = local.glue_job_reference
   role_arn          = aws_iam_role.glue.arn
   glue_version      = "4.0"
   worker_type       = "G.1X"
@@ -93,7 +102,8 @@ locals {
 }
 
 resource "aws_glue_job" "reservations_cdc_merge" {
-  name              = "${local.prefix}-reservations-cdc-merge"
+  count             = var.enable_glue_jobs ? 1 : 0
+  name              = local.glue_job_reservations
   role_arn          = aws_iam_role.glue.arn
   glue_version      = "4.0"
   worker_type       = "G.1X"
@@ -125,7 +135,8 @@ resource "aws_glue_job" "reservations_cdc_merge" {
 
 # ---------- Crawler: registers silver tables for Athena, runs after a successful job ----------
 resource "aws_glue_crawler" "silver" {
-  name          = "${local.prefix}-silver"
+  count         = var.enable_glue_jobs ? 1 : 0
+  name          = local.glue_crawler
   role          = aws_iam_role.glue.arn
   database_name = aws_glue_catalog_database.silver.name
 
@@ -141,15 +152,16 @@ resource "aws_glue_crawler" "silver" {
 }
 
 resource "aws_glue_trigger" "crawl_after_job" {
-  name = "${local.prefix}-crawl-after-silver"
-  type = "CONDITIONAL"
+  count = var.enable_glue_jobs ? 1 : 0
+  name  = "${local.prefix}-crawl-after-silver"
+  type  = "CONDITIONAL"
 
   predicate {
     conditions {
-      job_name = aws_glue_job.bronze_to_silver.name
+      job_name = aws_glue_job.bronze_to_silver[0].name
       state    = "SUCCEEDED"
     }
   }
 
-  actions { crawler_name = aws_glue_crawler.silver.name }
+  actions { crawler_name = aws_glue_crawler.silver[0].name }
 }

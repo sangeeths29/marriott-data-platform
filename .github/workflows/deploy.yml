@@ -1,0 +1,72 @@
+# Deploy: merges to main that touch infrastructure or pipeline code deploy to dev
+# automatically. Prod runs after dev only when enabled, and the GitHub "prod"
+# environment requires a manual approval (Settings > Environments > prod > reviewers).
+# AWS access is a short-lived OIDC session on the deploy role, which only trusts jobs
+# bound to the dev/prod environments.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths: ["terraform/**", "pipeline/**", ".github/workflows/deploy.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy # never two applies at once
+  cancel-in-progress: false
+
+jobs:
+  dev:
+    if: vars.AWS_ACCOUNT_ID != ''
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: "1.17.2" }
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/marriott-dp-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+      - run: make package
+      - name: Apply (dev)
+        working-directory: terraform
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=marriott-dp-tfstate-${{ vars.AWS_ACCOUNT_ID }}" \
+            -backend-config="key=dev/main.tfstate"
+          terraform plan -input=false -var-file=envs/dev.tfvars -out=dev.tfplan
+          terraform apply -input=false dev.tfplan
+
+  prod:
+    needs: dev
+    if: vars.ENABLE_PROD == 'true'
+    runs-on: ubuntu-latest
+    environment: prod # manual approval gate
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: "1.17.2" }
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/marriott-dp-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+      - run: make package
+      - name: Apply (prod)
+        working-directory: terraform
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=marriott-dp-tfstate-${{ vars.AWS_ACCOUNT_ID }}" \
+            -backend-config="key=prod/main.tfstate"
+          terraform plan -input=false -var-file=envs/prod.tfvars -out=prod.tfplan
+          terraform apply -input=false prod.tfplan

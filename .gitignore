@@ -19,3 +19,8 @@ spark-warehouse/
 metastore_db/
 replay_pid*.log
 .ruff_cache/
+**/.terraform/
+terraform/**/*.tfstate*
+terraform/**/*.tfplan
+terraform/**/.build/
+.env.hybrid

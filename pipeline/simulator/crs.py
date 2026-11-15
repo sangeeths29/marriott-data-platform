@@ -85,8 +85,9 @@ def _property_code(property_id: str) -> str:
 
 def _db_path() -> Path:
     root = storage.data_root()
-    base = Path("./data") if storage.is_s3(root) else Path(root)
-    return base / "_simulator" / "crs.sqlite"
+    if storage.is_s3(root):  # the simulated source system's own database stays on this machine
+        return Path("./data") / "_simulator" / "crs_aws.sqlite"
+    return Path(root) / "_simulator" / "crs.sqlite"
 
 
 def load_properties(max_properties: int) -> list[dict]:

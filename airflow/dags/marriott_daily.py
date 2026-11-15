@@ -98,7 +98,9 @@ def spark_job(task_id: str, script: str, iceberg: bool, glue_job_env: str, **kwa
         return GlueJobOperator(task_id=task_id, job_name=os.environ[glue_job_env],
                                script_args={"--date": "{{ ds }}"}, wait_for_completion=True,
                                verbose=False, **kwargs)
-    packages = f"--packages {ICEBERG_PACKAGE} " if iceberg else ""
+    # Hybrid mode (LOCAL_SPARK_S3=1) supplies S3 + Glue-catalog packages via SPARK_EXTRA.
+    default_packages = f"--packages {ICEBERG_PACKAGE}" if iceberg else ""
+    packages = "${SPARK_EXTRA:-" + default_packages + "} "
     return bash(task_id, f"make package >/dev/null && spark-submit {packages}--py-files build/pipeline.zip "
                          f'{script} --date {{{{ ds }}}} --data-root "$DATA_ROOT"', **kwargs)
 
@@ -146,6 +148,8 @@ with DAG(
         silver_reference = spark_job("silver_reference", "pipeline/jobs/bronze_to_silver.py", iceberg=False,
                                      glue_job_env="GLUE_JOB_REFERENCE")
         landed >> silver_reference
+        if ENV == "local":  # register silver tables in the Glue catalog (no-op for a local data root)
+            silver_reference >> bash("register_silver_tables", "python scripts/register_silver_tables.py")
         if ENV == "aws":
             from airflow.providers.amazon.aws.operators.glue_crawler import GlueCrawlerOperator
 

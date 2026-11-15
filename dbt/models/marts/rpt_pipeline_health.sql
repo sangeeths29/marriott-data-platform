@@ -26,6 +26,6 @@ select
     date_diff('second', r.started_at, r.finished_at)        as duration_seconds,
     coalesce(x.rejected_records, 0)                         as rejected_records_logged,
     r.error,
-    r.started_at
+    cast(r.started_at as timestamp)                         as started_at  -- drop time zone (Athena/Hive)
 from runs r
 left join rejects x on r.run_id = x.run_id

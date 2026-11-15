@@ -19,8 +19,9 @@ variable "alert_email" {
 }
 
 variable "ingestion_principal_arn" {
-  description = "IAM principal (e.g. the Jenkins agent role) allowed to assume the ingestion role."
+  description = "IAM principal allowed to assume the ingestion role (e.g. the Airflow worker's role). Empty = any principal in this account that has sts:AssumeRole permission."
   type        = string
+  default     = ""
 }
 
 variable "glue_workers" {
@@ -37,4 +38,10 @@ variable "freshness_threshold_hours" {
   description = "Alarm if silver has not been refreshed within this many hours."
   type        = number
   default     = 30
+}
+
+variable "enable_glue_jobs" {
+  description = "Create the Glue ETL jobs + crawler. Set false while AWS has Glue ETL disabled for the account (hybrid mode)."
+  type        = bool
+  default     = true
 }
